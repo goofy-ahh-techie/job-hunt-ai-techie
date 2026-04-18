@@ -1,0 +1,30 @@
+version: "3.9"
+
+services:
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: jobhunt-backend
+    environment:
+      POSTGRES_DB: jobhunt_dev
+      POSTGRES_USER: jobhuntai
+      POSTGRES_PASSWORD: jobhuntai
+
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD_SHELL", "pg_isready -U jobhuntai -d jobhunt_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - jobhunt-net
+
+volumes:
+  postgres_data:
+
+networks:
+  jobhunt-net:
+    driver: bridge

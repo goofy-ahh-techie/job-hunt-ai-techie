@@ -1,0 +1,11 @@
+databaseChangeLog:
+  - changeSet:
+      id: 002-seed-app-ping
+      author: dell
+      changes:
+        - insert:
+            tableName: app_ping
+            columns:
+              - column:
+                  name: label
+                  value: phase0-db-ok
