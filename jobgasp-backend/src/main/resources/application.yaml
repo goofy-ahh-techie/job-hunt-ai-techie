@@ -16,6 +16,12 @@ spring:
     properties:
       hibernate:
         format_sql: true
+        jdbc:
+          # Persist timestamps in UTC regardless of the host's timezone.
+          # The JDBC *connection* timezone is a separate concern handled in
+          # JobHuntBackendApplication.applyDefaultTimeZone() — it is negotiated
+          # at handshake, before any property here is applied.
+          time_zone: UTC
     open-in-view: false
 
   liquibase:
@@ -29,6 +35,13 @@ springdoc:
     path: /swagger-ui.html
 
 app:
+  security:
+    jwt:
+      # Override in every non-local environment. HS256 needs >= 32 bytes.
+      secret: ${JWT_SECRET:local-dev-only-secret-change-me-0123456789}
+      issuer: ${JWT_ISSUER:job-hunt-copilot}
+      access-token-ttl-seconds: ${JWT_ACCESS_TTL_SECONDS:3600}
+
   intelligence:
     base-url: ${INTELLIGENCE_BASE_URL:http://localhost:8000}
     connect-timeout-ms: 3000
