@@ -1,0 +1,20 @@
+databaseChangeLog:
+  - changeSet:
+      id: 009-add-raw-resume-user-fk
+      author: prabhat
+      # raw_resume already exists (changeset 003), so the guard here checks the
+      # constraint — not the table. MARK_RAN keeps a re-run safe if the FK is
+      # already present (e.g. applied out of band on an existing dev DB).
+      preConditions:
+        onFail: MARK_RAN
+        not:
+          foreignKeyConstraintExists:
+            foreignKeyName: fk_raw_resume_user
+      changes:
+        - addForeignKeyConstraint:
+            constraintName: fk_raw_resume_user
+            baseTableName: raw_resume
+            baseColumnNames: user_id
+            referencedTableName: users
+            referencedColumnNames: id
+            onDelete: SET NULL

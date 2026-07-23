@@ -38,6 +38,7 @@ job-hunt-ai-techie/
 │   │   │   │   ├── auth/           # Phase 1: JWT authentication
 │   │   │   │   ├── common/         # ApiResponse, exception handler, clients
 │   │   │   │   ├── rawresume/      # Raw resume + JD intake
+│   │   │   │   ├── resume/         # Phase 2: resume parsing & storage
 │   │   │   │   └── user/           # User entity, Role, repository
 │   │   │   └── resources/
 │   │   │       ├── application.yaml         # Single config file (no profiles yet)
@@ -104,6 +105,59 @@ Everything below has been generated and confirmed working.
 
 ---
 
+### ✅ Phase 2 — Resume Parsing & Storage (COMPLETE)
+
+Full pipeline: authenticated upload → local file storage → text extraction → section
+chunking → persisted across three layers (`resume` → `resume_version` → `resume_chunk`).
+
+**Endpoints** (`/api/v1/resumes`, all require a Bearer token; `userId` comes from the
+principal, never a request param)
+- `POST /upload` (`multipart/form-data`) → 201; stores file, extracts, chunks, persists
+- `GET /` → 200, caller's resumes (newest first)
+- `GET /{resumeId}` → 200; 404 if missing or not owned
+- `GET /{resumeId}/versions` → 200
+- `GET /{resumeId}/versions/{versionId}/chunks` → 200
+
+**Components** (`resume/` package)
+- `domain/` — `Resume`, `ResumeVersion`, `ResumeChunk` entities + enums `ResumeStatus`,
+  `ExtractionStatus`, `SectionLabel`, `FileType` (all `@Enumerated(STRING)`).
+  Aggregates reference each other by `UUID` id, not JPA associations.
+- `storage/FileStorageService` — validates (PDF/DOCX, ≤10MB, path-traversal guard), writes
+  to `{userId}/{resumeId}/{fileName}`, returns a storage key; `resolve()` rejoins to root.
+- `parser/ResumeTextExtractorService` — PDFBox (PDF) + Apache POI (DOCX).
+- `parser/ResumeChunkerService` — keyword-table (`Map<SectionLabel, List<String>>`) state
+  machine; header-only-if-short heuristic; `OTHER` fallback. DSA-relevant component.
+- `service/ResumeService` — orchestration (not `@Transactional`: file I/O runs outside any
+  DB tx); `service/ResumePersistenceService` — the transactional boundary (atomic
+  `saveParsed`; independent `saveResume` for the FAILED record).
+- `controller/ResumeController`, `dto/` records, `mapper/ResumeMapper` (static, all mapping).
+
+**Design decisions worth remembering**
+- **Manual UUID ids** (not `@UuidGenerator`): the storage path embeds the resume id, so the
+  service must know it before insert — matches the `User`/`AuthService` pattern.
+- **New tables use `TIMESTAMPTZ` + `Instant`** (legacy `users`/`raw_resume` remain `TIMESTAMP`).
+- **`pdfbox`** library artifact, not `pdfbox-app` (the CLI uber-jar).
+- **Store-then-persist-once**: file written first (storage failure ⇒ zero DB rows); the
+  `Resume` is inserted exactly once as `PARSED`, or as `FAILED` on a processing failure.
+- On processing failure after storage: resume saved `FAILED`, then `ResumeProcessingException`
+  → 422. The single `try/catch` in `ResumeService` is deliberate state compensation, not HTTP
+  mapping (that stays in the global handler).
+
+**Exception → status** (wired into `GlobalExceptionHandler`)
+- `ResourceNotFoundException` → 404 · `ResumeProcessingException` → 422 ·
+  `FileStorageException` → 500 · `TextExtractionException` → 500
+
+**Config:** `app.storage.resume-dir` (`RESUME_STORAGE_DIR`, default `./uploads/resumes`);
+`spring.servlet.multipart` max-file-size 10MB / max-request-size 11MB.
+
+**Tests:** `ResumeChunkerServiceTest` (6), `ResumeTextExtractorServiceTest` (4, generates its
+own PDF/DOCX fixtures), `ResumeServiceTest` (3, Mockito) — 13 total, all passing, no DB required.
+
+> ⚠️ Not yet verified against a live DB: changesets 006–009 applying and `ddl-auto: validate`
+> accepting the new entities. Run via Docker Compose to confirm (native PG14 shadows 5432).
+
+---
+
 ## Architectural Decisions (Locked)
 
 These are intentional choices — do not suggest alternatives unless asked.
@@ -146,6 +200,14 @@ These are intentional choices — do not suggest alternatives unless asked.
 | 003-create-raw-resume   | `raw_resume`   | ✅ Applied |
 | 004-create-raw-jd       | `raw_jd`       | ✅ Applied |
 | 005-create-users        | `users`        | ✅ Applied |
+| 006-create-resume       | `resume`       | 🔜 Pending live run |
+| 007-create-resume-version | `resume_version` | 🔜 Pending live run |
+| 008-create-resume-chunk | `resume_chunk` | 🔜 Pending live run |
+| 009-add-raw-resume-user-fk | FK on `raw_resume.user_id` | 🔜 Pending live run |
+
+> Changesets 006–009 are written and registered but not yet run against a live DB.
+> `resume` FKs `users(id)` ON DELETE CASCADE; 009 adds the previously-missing FK on
+> `raw_resume.user_id` → `users(id)` ON DELETE SET NULL.
 
 > ⚠️ Local gotcha: a native Windows **PostgreSQL 14** service also listens on 5432 and
 > shadows the container for host-run processes. Run the backend via Docker Compose, or
@@ -168,8 +230,8 @@ Only work on the current active phase unless explicitly instructed otherwise.
 |-------|------------------------------------|-------------|
 | 0     | Foundation & scaffolding           | ✅ Complete  |
 | 1     | Authentication (JWT)               | ✅ Complete  |
-| 2     | Resume parsing & storage           | 🔜 Next     |
-| 3     | JD intelligence                    | Pending     |
+| 2     | Resume parsing & storage           | ✅ Complete  |
+| 3     | JD intelligence                    | 🔜 Next     |
 | 4     | Matching engine                    | Pending     |
 | 5     | Skill gap analysis                 | Pending     |
 | 6     | Application tracking               | Pending     |
@@ -192,13 +254,21 @@ Only work on the current active phase unless explicitly instructed otherwise.
 
 ## Known Gaps (carried into later phases)
 
-- `RawResumeController`/`RawResumeService` use `orElseThrow()` on a missing id, which the
-  catch-all handler turns into a 500 instead of a 404 — fix during Phase 2
+- ✅ *(fixed in Phase 2)* `RawResumeService` missing-id now returns 404 via
+  `ResourceNotFoundException` instead of 500
+- ✅ *(fixed in Phase 2)* `raw_resume.user_id` now has a FK to `users.id` (changeset 009)
 - No dev/test/prod profile split yet; `application.yaml` is the only config file
 - No GitHub Actions CI pipeline in the repo yet, despite the Phase 0 notes
-- `raw_resume.user_id` is still nullable and unconstrained — wire it to `users.id` in Phase 2
 - Token refresh / logout (revocation) is intentionally out of scope for Phase 1
+- **Phase 2 carry-forwards:**
+  - Changesets 006–009 not yet verified against a live DB (Docker Compose run pending)
+  - Resume upload/parse is fully synchronous; extraction is not yet offloaded (async +
+    `PROCESSING`/`PENDING`/`IN_PROGRESS` states are reserved for a later phase)
+  - A FAILED-processing attempt leaves the stored file on disk (no orphan cleanup yet)
+  - No file-content (magic-byte) sniffing — file type is resolved by extension only
+  - `RawResumeController` still doesn't scope by authenticated user (legacy intake module)
 
 ---
 
-_Last updated: Phase 1 (JWT Authentication) complete. Phase 2 (Resume parsing & storage) is next._
+_Last updated: Phase 2 (Resume parsing & storage) complete — code + unit tests done
+(13 new tests passing), live-DB migration verification pending. Phase 3 (JD intelligence) is next._

@@ -29,6 +29,8 @@
 	<properties>
 		<java.version>25</java.version>
 		<jjwt.version>0.12.6</jjwt.version>
+		<pdfbox.version>3.0.3</pdfbox.version>
+		<poi.version>5.3.0</poi.version>
 	</properties>
     <dependencies>
         <dependency>
@@ -97,6 +99,20 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <!-- Resume text extraction (Phase 2). pdfbox is the embeddable library
+             artifact — not pdfbox-app, which is the standalone CLI uber-jar. -->
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox</artifactId>
+            <version>${pdfbox.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>${poi.version}</version>
         </dependency>
 
 		<dependency>

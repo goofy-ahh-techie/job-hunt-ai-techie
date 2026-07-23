@@ -9,3 +9,11 @@ databaseChangeLog:
       file: db/changelog/changes/004-create-raw-jd.yaml
   - include:
       file: db/changelog/changes/005-create-users.yaml
+  - include:
+      file: db/changelog/changes/006-create-resume.yaml
+  - include:
+      file: db/changelog/changes/007-create-resume-version.yaml
+  - include:
+      file: db/changelog/changes/008-create-resume-chunk.yaml
+  - include:
+      file: db/changelog/changes/009-add-raw-resume-user-fk.yaml
