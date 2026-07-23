@@ -3,3 +3,9 @@ databaseChangeLog:
       file: db/changelog/changes/001-create-app-ping.yaml
   - include:
       file: db/changelog/changes/002-seed-app-ping.yaml
+  - include:
+      file: db/changelog/changes/003-create-raw-resume.yaml
+  - include:
+      file: db/changelog/changes/004-create-raw-jd.yaml
+  - include:
+      file: db/changelog/changes/005-create-users.yaml

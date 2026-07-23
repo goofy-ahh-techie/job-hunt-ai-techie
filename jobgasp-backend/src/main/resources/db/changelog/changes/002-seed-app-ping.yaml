@@ -1,7 +1,7 @@
 databaseChangeLog:
   - changeSet:
       id: 002-seed-app-ping
-      author: dell
+      author: prabhat
       changes:
         - insert:
             tableName: app_ping

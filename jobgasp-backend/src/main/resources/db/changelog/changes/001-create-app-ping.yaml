@@ -1,7 +1,12 @@
 databaseChangeLog:
   - changeSet:
       id: 001-create-app-ping
-      author: dell
+      author: prabhat
+      preConditions:
+        onFail: MARK_RAN
+        not:
+          tableExists:
+            tableName: app_ping
       changes:
         - createTable:
             tableName: app_ping
