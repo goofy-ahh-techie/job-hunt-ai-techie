@@ -11,6 +11,16 @@ databaseChangeLog:
           foreignKeyConstraintExists:
             foreignKeyName: fk_raw_resume_user
       changes:
+        # Legacy raw_resume rows (from the Phase 1 raw-intake stub) carry random
+        # user_id values that reference no real user. Null those orphans first so
+        # the FK can be added; SET NULL is the same semantics the constraint uses
+        # on delete, and user_id is nullable.
+        - sql:
+            sql: >-
+              UPDATE raw_resume SET user_id = NULL
+              WHERE user_id IS NOT NULL
+                AND user_id NOT IN (SELECT id FROM users)
+
         - addForeignKeyConstraint:
             constraintName: fk_raw_resume_user
             baseTableName: raw_resume
