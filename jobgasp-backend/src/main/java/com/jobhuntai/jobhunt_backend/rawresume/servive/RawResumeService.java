@@ -1,5 +1,6 @@
 package com.jobhuntai.jobhunt_backend.rawresume.servive;
 
+import com.jobhuntai.jobhunt_backend.common.exception.ResourceNotFoundException;
 import com.jobhuntai.jobhunt_backend.rawresume.dto.RawResumeRequest;
 import com.jobhuntai.jobhunt_backend.rawresume.dto.RawResumeResponse;
 import com.jobhuntai.jobhunt_backend.rawresume.entity.RawResumeEntity;
@@ -23,6 +24,7 @@ public class RawResumeService {
     }
 
     public RawResumeEntity getRawResumeDataByID(UUID id) {
-        return resumeRepository.findById(id).orElseThrow();
+        return resumeRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Raw resume not found: " + id));
     }
 }

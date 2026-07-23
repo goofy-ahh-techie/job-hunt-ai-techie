@@ -1,0 +1,66 @@
+databaseChangeLog:
+  - changeSet:
+      id: 008-create-resume-chunk
+      author: prabhat
+      preConditions:
+        onFail: MARK_RAN
+        not:
+          tableExists:
+            tableName: resume_chunk
+      changes:
+        - createTable:
+            tableName: resume_chunk
+            columns:
+              - column:
+                  name: id
+                  type: UUID
+                  defaultValueComputed: gen_random_uuid()
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: resume_version_id
+                  type: UUID
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_resume_chunk_resume_version
+                    references: resume_version(id)
+                    deleteCascade: true
+              - column:
+                  name: chunk_index
+                  type: INT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: section_label
+                  type: VARCHAR(100)
+                  constraints:
+                    nullable: true
+              - column:
+                  name: content
+                  type: TEXT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: word_count
+                  type: INT
+                  constraints:
+                    nullable: true
+              - column:
+                  name: created_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false
+
+        - addUniqueConstraint:
+            tableName: resume_chunk
+            columnNames: resume_version_id, chunk_index
+            constraintName: uq_resume_chunk_version_id_chunk_index
+
+        - createIndex:
+            indexName: idx_resume_chunk_resume_version_id
+            tableName: resume_chunk
+            columns:
+              - column:
+                  name: resume_version_id
