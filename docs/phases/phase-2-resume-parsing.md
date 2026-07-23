@@ -1,6 +1,7 @@
 # Phase 2 — Resume Parsing & Storage
 
-**Status:** ✅ Complete (code + unit tests; live-DB migration verification pending)
+**Status:** ✅ Complete — code, unit tests, **and** a live end-to-end run verified
+against the Dockerized PostgreSQL 16 (migrations applied, upload → parse → read all pass).
 **Focus:** The first user-owned data module — turn an authenticated user's uploaded
 resume into stored, owned, structured data. This is the first real run of the
 `raw input → extracted facts → derived intelligence` layering.
@@ -94,17 +95,39 @@ The JWT principal only carries the email, not the id.
 user's row is gone, it raises `UsernameNotFoundException` (→ 401). `userId` is never taken from
 the request.
 
+### 6. Changeset 009 rejected by pre-existing orphan data (found on first live boot)
+The first real boot failed applying 009: legacy `raw_resume` rows from the Phase-1 raw-intake
+stub carry random `user_id` values (`RawResumeMapper` assigned `UUID.randomUUID()`), none of
+which exist in `users` — so the FK to `users(id)` was rejected.
+**Fix:** null those orphans first (`UPDATE raw_resume SET user_id = NULL WHERE user_id NOT IN
+(SELECT id FROM users)`) inside the same changeset, before adding the constraint. That's the
+same semantics the FK uses on delete (`SET NULL`), and `user_id` is nullable. Second boot:
+006–009 all apply, `validate` passes.
+
+### 7. `createdAt` null in the upload response — the assigned-id `merge()` trap (found in E2E)
+The live end-to-end run showed `POST /upload` returning `createdAt: null`, while `GET` returned
+it correctly. Root cause: with an **application-assigned** `@Id`, Spring Data's `save()` sees a
+non-null id, assumes the row exists, and routes through `merge()`. `merge()` returns a *different*
+managed instance (and runs `@PrePersist` on that copy), so the object we map into the response
+never gets its audit values — and every insert pays for a needless pre-`SELECT`.
+**Fix:** the three entities implement `Persistable<UUID>` with a `@Transient persisted` flag
+(false when builder-created, flipped true on `@PostLoad`/`@PostPersist`). `isNew()` returns
+`!persisted`, so `save()` uses `persist()` for new rows. Fixes the response *and* drops the
+extra SELECT. Verified live: the upload response now carries `createdAt`.
+
 ---
 
 ## What we deferred to later phases
 
-- **Live-DB verification of changesets 006–009** — written and registered, not yet run against
-  a running database (the native Windows PG14 shadow on 5432 means this must go through Docker Compose).
 - **Async extraction** — upload is fully synchronous today. The `PROCESSING` / `PENDING` /
   `IN_PROGRESS` states exist in the enums but are reserved for when parsing is offloaded.
 - **Orphan-file cleanup** — a `FAILED` attempt leaves the stored file on disk.
 - **Content sniffing** — file type is resolved by extension only, not magic bytes.
 - **Legacy `RawResumeController`** still isn't user-scoped (untouched intake module).
+
+> **Local run note:** the app must reach the Dockerized PG16 on 5432. The native Windows
+> `postgresql-x64-14` service shadows it — stop that service before running the backend from
+> the host/IntelliJ (`net stop postgresql-x64-14`, elevated), or run the backend in Compose.
 
 ---
 
@@ -114,7 +137,7 @@ the request.
 |---------------------------------|------------------------------------------------|
 | New endpoints                   | 5 (`/api/v1/resumes` …)                         |
 | Persistence layers              | 3 (`resume` → `resume_version` → `resume_chunk`)|
-| Liquibase changesets added      | 4 (006–009) — pending live run                  |
+| Liquibase changesets added      | 4 (006–009) — **applied on live PG16**          |
 | Supported upload formats        | PDF (PDFBox), DOCX (Apache POI); ≤ 10MB         |
 | Ownership enforcement           | `findByIdAndUserId`; wrong/missing → 404        |
 | Exception → status              | 404 / 422 / 500 / 500, all via `ApiResponse`    |
@@ -122,3 +145,5 @@ the request.
 | Tests requiring a DB / context  | 0                                               |
 | Phase-1 tests after changes     | 11 / 11 (no regression)                         |
 | Carried-over gaps fixed         | 2 (raw-resume 500→404; `raw_resume.user_id` FK) |
+| Live end-to-end verified        | register → upload → parse → 4 labelled chunks; POST returns `createdAt` |
+| Post-live fixes                 | changeset 009 orphan-null; `Persistable` assigned-id insert |

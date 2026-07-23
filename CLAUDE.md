@@ -134,7 +134,11 @@ principal, never a request param)
 
 **Design decisions worth remembering**
 - **Manual UUID ids** (not `@UuidGenerator`): the storage path embeds the resume id, so the
-  service must know it before insert — matches the `User`/`AuthService` pattern.
+  service must know it before insert — matches the `User`/`AuthService` pattern. The three
+  entities implement `Persistable<UUID>` (a `@Transient persisted` flag set on
+  `@PostLoad`/`@PostPersist`) so `save()` uses `persist()`, not `merge()` — otherwise an
+  assigned id makes Spring Data `merge()` (extra SELECT; audit values land on a copy, so the
+  upload response came back with `createdAt: null`).
 - **New tables use `TIMESTAMPTZ` + `Instant`** (legacy `users`/`raw_resume` remain `TIMESTAMP`).
 - **`pdfbox`** library artifact, not `pdfbox-app` (the CLI uber-jar).
 - **Store-then-persist-once**: file written first (storage failure ⇒ zero DB rows); the
@@ -153,8 +157,12 @@ principal, never a request param)
 **Tests:** `ResumeChunkerServiceTest` (6), `ResumeTextExtractorServiceTest` (4, generates its
 own PDF/DOCX fixtures), `ResumeServiceTest` (3, Mockito) — 13 total, all passing, no DB required.
 
-> ⚠️ Not yet verified against a live DB: changesets 006–009 applying and `ddl-auto: validate`
-> accepting the new entities. Run via Docker Compose to confirm (native PG14 shadows 5432).
+**Live end-to-end verified:** against the Dockerized PG16 — changesets 006–009 applied,
+`ddl-auto: validate` accepted the entities, and register → upload (PDF) → parse → read returned
+a resume + version + 4 section-labelled chunks (SUMMARY/EXPERIENCE/SKILLS/EDUCATION).
+
+> ⚠️ Local run: stop the native `postgresql-x64-14` service (it shadows the Docker PG16 on
+> 5432) before running the backend from the host/IntelliJ, or run the backend in Compose.
 
 ---
 
@@ -200,14 +208,15 @@ These are intentional choices — do not suggest alternatives unless asked.
 | 003-create-raw-resume   | `raw_resume`   | ✅ Applied |
 | 004-create-raw-jd       | `raw_jd`       | ✅ Applied |
 | 005-create-users        | `users`        | ✅ Applied |
-| 006-create-resume       | `resume`       | 🔜 Pending live run |
-| 007-create-resume-version | `resume_version` | 🔜 Pending live run |
-| 008-create-resume-chunk | `resume_chunk` | 🔜 Pending live run |
-| 009-add-raw-resume-user-fk | FK on `raw_resume.user_id` | 🔜 Pending live run |
+| 006-create-resume       | `resume`       | ✅ Applied |
+| 007-create-resume-version | `resume_version` | ✅ Applied |
+| 008-create-resume-chunk | `resume_chunk` | ✅ Applied |
+| 009-add-raw-resume-user-fk | FK on `raw_resume.user_id` | ✅ Applied |
 
-> Changesets 006–009 are written and registered but not yet run against a live DB.
-> `resume` FKs `users(id)` ON DELETE CASCADE; 009 adds the previously-missing FK on
-> `raw_resume.user_id` → `users(id)` ON DELETE SET NULL.
+> Applied against the live PG16. `resume` FKs `users(id)` ON DELETE CASCADE; 009 adds the
+> previously-missing FK on `raw_resume.user_id` → `users(id)` ON DELETE SET NULL. 009 also
+> nulls pre-existing orphaned `raw_resume.user_id` values (legacy stub data) before adding
+> the constraint, or the FK is rejected.
 
 > ⚠️ Local gotcha: a native Windows **PostgreSQL 14** service also listens on 5432 and
 > shadows the container for host-run processes. Run the backend via Docker Compose, or
@@ -261,7 +270,6 @@ Only work on the current active phase unless explicitly instructed otherwise.
 - No GitHub Actions CI pipeline in the repo yet, despite the Phase 0 notes
 - Token refresh / logout (revocation) is intentionally out of scope for Phase 1
 - **Phase 2 carry-forwards:**
-  - Changesets 006–009 not yet verified against a live DB (Docker Compose run pending)
   - Resume upload/parse is fully synchronous; extraction is not yet offloaded (async +
     `PROCESSING`/`PENDING`/`IN_PROGRESS` states are reserved for a later phase)
   - A FAILED-processing attempt leaves the stored file on disk (no orphan cleanup yet)
@@ -270,5 +278,6 @@ Only work on the current active phase unless explicitly instructed otherwise.
 
 ---
 
-_Last updated: Phase 2 (Resume parsing & storage) complete — code + unit tests done
-(13 new tests passing), live-DB migration verification pending. Phase 3 (JD intelligence) is next._
+_Last updated: Phase 2 (Resume parsing & storage) complete — code + 13 unit tests + a live
+end-to-end run verified (migrations applied, upload→parse→read works). Post-live fixes: changeset
+009 orphan-null, and `Persistable` for correct assigned-id inserts. Phase 3 (JD intelligence) is next._
