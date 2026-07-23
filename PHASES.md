@@ -10,7 +10,7 @@ _Last updated: 2026-07-24._
 |-------|--------------------------------|----------------|------|
 | 0     | Foundation & scaffolding       | ✅ Complete    | [phase-0-foundation.md](docs/phases/phase-0-foundation.md) |
 | 1     | Authentication (JWT)           | ✅ Complete    | [phase-1-jwt-auth.md](docs/phases/phase-1-jwt-auth.md) |
-| 2     | Resume parsing & storage       | ✅ Complete\*  | [phase-2-resume-parsing.md](docs/phases/phase-2-resume-parsing.md) |
+| 2     | Resume parsing & storage       | ✅ Complete    | [phase-2-resume-parsing.md](docs/phases/phase-2-resume-parsing.md) |
 | 3     | JD intelligence                | 🔜 Next        | _not started_ |
 | 4     | Matching engine                | ⬜ Pending     | _not started_ |
 | 5     | Skill gap analysis             | ⬜ Pending     | _not started_ |
@@ -22,8 +22,8 @@ _Last updated: 2026-07-24._
 
 **Legend:** ✅ Complete · 🔜 In progress · ⬜ Pending
 
-\* Phase 2 code + unit tests are complete (13 new tests passing); the only open item is
-verifying changesets 006–009 against a live database via Docker Compose.
+Phase 2 is fully verified: 13 unit tests plus a live end-to-end run (migrations 006–009 applied
+on PG16, upload → parse → read works). Two fixes came out of the live run — see its phase doc.
 
 ---
 
