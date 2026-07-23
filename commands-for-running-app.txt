@@ -1,0 +1,7 @@
+When trying to run the application for first time: 
+docker compose up --build
+
+When trying to restart the docker images: 
+1. docker compose down -v --remove-orphans
+2. docker compose build --no-cache
+3. docker compose up
