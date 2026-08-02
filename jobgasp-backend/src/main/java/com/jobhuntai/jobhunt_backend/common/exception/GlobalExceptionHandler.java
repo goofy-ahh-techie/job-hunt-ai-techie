@@ -67,6 +67,21 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(ApiResponse.failure(ex.getMessage(), null));
     }
 
+    @ExceptionHandler(JdExtractionFailedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleJdExtractionFailed(JdExtractionFailedException ex) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(ApiResponse.failure(ex.getMessage(), null));
+    }
+
+    @ExceptionHandler(IntelligenceServiceUnavailableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleIntelligenceUnavailable(IntelligenceServiceUnavailableException ex) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(ApiResponse.failure(ex.getMessage(), null));
+    }
+
+    @ExceptionHandler(JdIntelligenceNotFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleJdIntelligenceNotFound(JdIntelligenceNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.failure(ex.getMessage(), null));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleException(Exception ex) {
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(ApiResponse.failure(ex.getMessage(), null));

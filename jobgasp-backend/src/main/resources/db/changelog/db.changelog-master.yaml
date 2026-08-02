@@ -17,3 +17,7 @@ databaseChangeLog:
       file: db/changelog/changes/008-create-resume-chunk.yaml
   - include:
       file: db/changelog/changes/009-add-raw-resume-user-fk.yaml
+  - include:
+      file: db/changelog/changes/010-create-job-description.yaml
+  - include:
+      file: db/changelog/changes/011-create-jd-intelligence.yaml

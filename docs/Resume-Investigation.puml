@@ -1,0 +1,109 @@
+@startuml
+title <b>Resume Investigation Workflow</b>
+
+!theme plain
+skinparam backgroundColor #FAFAFA
+skinparam defaultFontName Segoe UI
+skinparam defaultFontSize 13
+skinparam ArrowColor #555555
+skinparam ArrowThickness 1.5
+
+skinparam package {
+  BackgroundColor #F0F4FF
+  BorderColor #3B5BDB
+  FontColor #1A1A2E
+  FontStyle bold
+}
+
+skinparam class {
+  BackgroundColor #FFFFFF
+  BorderColor #888888
+  HeaderBackgroundColor #E8EEFF
+  FontColor #1A1A2E
+}
+
+skinparam note {
+  BackgroundColor #FFFBEA
+  BorderColor #E0A800
+  FontColor #3D2C00
+}
+
+class ResumeData {
++raw_data : String
++file_type : ENUM [PDF, DOC, TXT]
++uploaded_at : Timestamp
+}
+
+package "Phase A1 — Resume Intelligence" {
+
+  class ResumeParser {
+    + parse(raw_text) : ResumeIntelligence
+    --
+    ~ extractSkills()
+    ~ extractExperience()
+    ~ inferSeniority()
+    ~ detectDomain()
+    ~ flagConfidence()
+  }
+
+  class ResumeIntelligence {
+    .. Skills ..
+    + skills : List<Skill>
+    + skill_categories : Map<Category, List<Skill>>
+    .. Experience ..
+    + experience_entries : List<ExperienceEntry>
+    + total_years : Float
+    .. Summary ..
+    + role_summary : String
+    + seniority_estimate : SeniorityLevel
+    .. Signals ..
+    + domain_signals : List<DomainSignal>
+    + confidence_flags : List<ConfidenceFlag>
+  }
+
+  class Skill {
+    + name : String
+    + category : Enum [LANGUAGE, FRAMEWORK, DB, CLOUD, TOOL]
+    + confidence : Float
+    + evidence_count : Integer
+  }
+
+  class ExperienceEntry {
+    + company : String
+    + role_title : String
+    + duration_months : Integer
+    + responsibilities : List<String>
+    + tech_used : List<String>
+    + impact_signals : List<String>
+  }
+
+  class DomainSignal {
+    + domain : String
+    + signal_strength : Float
+    + evidence : String
+  }
+
+  class ConfidenceFlag {
+    + flag_type : Enum [LOW_EVIDENCE, VAGUE_BULLET, DATE_GAP, UNQUANTIFIED_IMPACT]
+    + field : String
+    + detail : String
+  }
+}
+
+ResumeData      --> ResumeParser       : feeds
+
+ResumeParser        --> ResumeIntelligence
+ResumeIntelligence  *-- Skill
+ResumeIntelligence  *-- ExperienceEntry
+ResumeIntelligence  *-- DomainSignal
+ResumeIntelligence  *-- ConfidenceFlag
+
+note bottom of ConfidenceFlag
+  <b>Triggers low confidence when:</b>
+  - Bullet has no measurable outcome
+  - Skill listed but never evidenced in experience
+  - Date gap > 6 months unexplained
+  - Role title doesn't match responsibilities
+end note
+
+@enduml

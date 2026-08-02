@@ -166,6 +166,83 @@ a resume + version + 4 section-labelled chunks (SUMMARY/EXPERIENCE/SKILLS/EDUCAT
 
 ---
 
+### ✅ Phase 3 — JD Intelligence (COMPLETE)
+
+JD ingestion (paste or file upload) → AI-powered structured extraction via the
+`intelligence-python` FastAPI service calling a local Ollama LLM → persisted across two
+layers (`job_description` → `jd_intelligence`). First real exercise of the Java → Python
+service boundary.
+
+**intelligence-python (FastAPI)** — `app/`: `clients/ollama_client.py` (async httpx →
+Ollama `/api/generate`), `prompts/jd_extraction_prompt.py` (single-shot, JSON-only,
+sentinel-substituted template), `services/jd_extraction_service.py` (fence-strip → parse
+→ validate), `schemas/jd_schemas.py` (Pydantic), `api/jd_routes.py`, `config.py`,
+`exceptions.py`. Endpoint `POST /extract/jd` → `JdExtractionResponse` (503/422/422/200);
+`GET /health` → `{status, model}`. Tests: `tests/test_jd_extraction_service.py` (4,
+Ollama mocked). Start: `uvicorn app.main:app --reload`.
+
+**Endpoints** (`/api/v1/jds`, all require a Bearer token; `userId` from the principal)
+- `POST /paste` (`application/json`) → 201; persists raw text, extracts, persists result
+- `POST /upload` (`multipart/form-data`, PDF/DOCX) → 201; stores file, extracts text
+  (reuses Phase 2 `FileStorageService` + `ResumeTextExtractorService`), same pipeline
+- `GET /` → 200 (newest first) · `GET /{jdId}` → 200 · `GET /{jdId}/intelligence` → 200
+  (404 if not yet extracted) · `GET /{jdId}/detail` → 200 (JD + intelligence combined)
+
+**Components** (`jd/` package) — `domain/` (`JobDescription`, `JdIntelligence` entities +
+enums `JdStatus`, `JdSourceType`, `EmploymentType`, `JdExtractionStatus`), `repository/`,
+`dto/` (records), `client/` (`JdIntelligenceClient` + `JdExtractionResult` record +
+`IntelligenceRestClientConfig`), `mapper/JdMapper` (static; owns JSON list codec),
+`service/` (`JdService` orchestration + `JdPersistenceService` transactional boundary),
+`controller/JdController`.
+
+**Design decisions worth remembering**
+- **Same `Persistable<UUID>` + assigned-UUID pattern as Phase 2** (file-upload path embeds
+  the id in the storage key). JD persisted as `UPLOADED` first, then `EXTRACTED` +
+  `COMPLETED` intelligence saved atomically via `saveParsed`.
+- **List fields stored as JSON-serialised `TEXT`** (documented tradeoff): `JdMapper`
+  owns both directions — `serializeList` (service→entity) and deserialize (entity→DTO).
+- **`employment_type` is a typed `EmploymentType` enum** on the entity; the Python service
+  normalises free-text to an enum name or null before it crosses the boundary.
+- **Failure-visible-through-API**: on extraction failure (422) the JD is `FAILED` *and* a
+  `jd_intelligence` row records `extraction_status=FAILED` + `extraction_error`; on service
+  unavailable (503) the JD is `FAILED` with no intelligence row. `JdService` is not
+  `@Transactional` so these compensating writes survive (mirrors `ResumeService`).
+- **Two client timeouts, not one**: connect=10s (availability), read=130s. A single 10s
+  timeout — as first specced — would false-503 every real extraction, since the local 3B
+  model takes 30–66s. Same lesson forced the Python-side Ollama timeout to 120s.
+- **Ollama request tuning** (deviates from a bare `{model,prompt,stream}` body):
+  `options.temperature=0` (deterministic extraction — otherwise `raw_summary` and skill
+  splits vary run-to-run) and `options.num_ctx=8192` (default 2048 silently truncates
+  longer JDs). Model `llama3.2:3b`; `mistral:7b` is the documented quality-upgrade path
+  (swap `OLLAMA_MODEL`, no code change).
+
+**Exception → status** (wired into `GlobalExceptionHandler`)
+- `JdExtractionFailedException` → 422 · `IntelligenceServiceUnavailableException` → 503 ·
+  `JdIntelligenceNotFoundException` → 404 · (`ResourceNotFoundException` → 404 for
+  wrong-owner/missing JD, reused from Phase 2)
+
+**Config:** `intelligence.service.url` (`INTELLIGENCE_SERVICE_URL`, default
+`http://localhost:8000`), `.connect-timeout-seconds` (10), `.read-timeout-seconds` (130);
+`app.storage.jd-dir` (reserved — JD uploads currently reuse the resume storage root).
+Python: `OLLAMA_BASE_URL`, `OLLAMA_MODEL`, `INTELLIGENCE_PORT`, plus timeout/temperature/
+num_ctx settings in `app/config.py`.
+
+**Tests:** `JdIntelligenceClientTest` (4, `MockRestServiceServer`), `JdServiceTest` (6,
+Mockito) — 10 new, all passing, no DB/Spring context. Python: 4 pytest, Ollama mocked.
+
+**Live end-to-end verified** (Dockerized PG16 + `ollama/ollama` container + FastAPI):
+changesets 010–011 applied, `validate` accepted the entities, and register → paste JD →
+`EXTRACTED` with populated `required_skills`/`must_have`/`responsibilities`, → PDF upload →
+`EXTRACTED`, → all GETs, → 404 on bad id, → **503 with `FAILED` JD (no intel row) when the
+intelligence service is down** (confirmed in DB), all worked.
+
+> ⚠️ Ollama must be running for JD ingestion. Local dev used a container:
+> `docker run -d --name ollama -p 11434:11434 -v ollama:/root/.ollama ollama/ollama`
+> then `docker exec ollama ollama pull llama3.2:3b`. The intelligence service defaults to
+> port 8000; if run elsewhere, set `INTELLIGENCE_SERVICE_URL` on the backend.
+
+---
+
 ## Architectural Decisions (Locked)
 
 These are intentional choices — do not suggest alternatives unless asked.
@@ -212,6 +289,8 @@ These are intentional choices — do not suggest alternatives unless asked.
 | 007-create-resume-version | `resume_version` | ✅ Applied |
 | 008-create-resume-chunk | `resume_chunk` | ✅ Applied |
 | 009-add-raw-resume-user-fk | FK on `raw_resume.user_id` | ✅ Applied |
+| 010-create-job-description | `job_description` | ✅ Applied |
+| 011-create-jd-intelligence | `jd_intelligence` | ✅ Applied |
 
 > Applied against the live PG16. `resume` FKs `users(id)` ON DELETE CASCADE; 009 adds the
 > previously-missing FK on `raw_resume.user_id` → `users(id)` ON DELETE SET NULL. 009 also
@@ -240,8 +319,8 @@ Only work on the current active phase unless explicitly instructed otherwise.
 | 0     | Foundation & scaffolding           | ✅ Complete  |
 | 1     | Authentication (JWT)               | ✅ Complete  |
 | 2     | Resume parsing & storage           | ✅ Complete  |
-| 3     | JD intelligence                    | 🔜 Next     |
-| 4     | Matching engine                    | Pending     |
+| 3     | JD intelligence                    | ✅ Complete  |
+| 4     | Matching engine                    | 🔜 Next     |
 | 5     | Skill gap analysis                 | Pending     |
 | 6     | Application tracking               | Pending     |
 | 7     | Interview preparation              | Pending     |
@@ -275,9 +354,23 @@ Only work on the current active phase unless explicitly instructed otherwise.
   - A FAILED-processing attempt leaves the stored file on disk (no orphan cleanup yet)
   - No file-content (magic-byte) sniffing — file type is resolved by extension only
   - `RawResumeController` still doesn't scope by authenticated user (legacy intake module)
+- **Phase 3 carry-forwards:**
+  - JD ingestion is fully synchronous; extraction blocks the request for 30–66s (the LLM
+    call). Async offload + `PROCESSING`/`IN_PROGRESS` states are reserved for a later phase.
+  - `llama3.2:3b` extraction quality is the ceiling: `experience_years_max` and the prose
+    `raw_summary` come back empty on some JDs. `mistral:7b` is the upgrade path.
+  - JD file uploads reuse the resume storage root; `app.storage.jd-dir` is reserved but
+    not yet wired (would need `FileStorageService` parameterised for a second root).
+  - No orphan cleanup of a stored JD file when extraction fails (same gap as Phase 2).
+  - Skill strings are extracted verbatim, not yet normalised — `SkillRegistry` (core IP)
+    is a later phase.
 
 ---
 
-_Last updated: Phase 2 (Resume parsing & storage) complete — code + 13 unit tests + a live
-end-to-end run verified (migrations applied, upload→parse→read works). Post-live fixes: changeset
-009 orphan-null, and `Persistable` for correct assigned-id inserts. Phase 3 (JD intelligence) is next._
+_Last updated: Phase 3 (JD intelligence) complete — Java + Python code, 10 new Java unit
+tests + 4 Python pytest (all passing, no DB/Ollama), and a live end-to-end run verified:
+changesets 010–011 applied, register → paste JD → EXTRACTED, PDF upload → EXTRACTED, all
+GETs, 404 on bad id, and 503 + FAILED-persisted when the intelligence service is down.
+Live-discovered fixes: Ollama timeout 30→120s, Java read timeout 10→130s, `raw_summary`
+null coercion, years-parsing prompt examples, `temperature=0`/`num_ctx=8192`. Phase 4
+(Matching engine) is next._
