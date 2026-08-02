@@ -55,6 +55,22 @@ app:
   storage:
     # Local filesystem root for uploaded resume files. Override per environment.
     resume-dir: ${RESUME_STORAGE_DIR:./uploads/resumes}
+    # Reserved for JD file storage. JD uploads currently reuse the Phase 2
+    # FileStorageService (rooted at resume-dir); this key marks the intended
+    # split-out location for when JD storage gets its own service.
+    jd-dir: ${JD_STORAGE_DIR:./uploads/jds}
+
+# Java -> intelligence-python service boundary (Phase 3).
+intelligence:
+  service:
+    url: ${INTELLIGENCE_SERVICE_URL:http://localhost:8000}
+    # Short connect timeout: the service is either up or it is not.
+    connect-timeout-seconds: ${INTELLIGENCE_CONNECT_TIMEOUT_SECONDS:10}
+    # Long read timeout: a JD extraction runs a local LLM that takes tens of
+    # seconds (30-66s measured for llama3.2:3b on CPU). This must exceed the
+    # intelligence service's own Ollama timeout (120s) or every real extraction
+    # would fail with a false "service unavailable".
+    read-timeout-seconds: ${INTELLIGENCE_READ_TIMEOUT_SECONDS:130}
 
 logging:
   level:

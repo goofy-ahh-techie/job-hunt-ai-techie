@@ -1,0 +1,90 @@
+databaseChangeLog:
+  - changeSet:
+      id: 010-create-job-description
+      author: prabhat
+      preConditions:
+        onFail: MARK_RAN
+        not:
+          tableExists:
+            tableName: job_description
+      changes:
+        - createTable:
+            tableName: job_description
+            columns:
+              - column:
+                  name: id
+                  type: UUID
+                  defaultValueComputed: gen_random_uuid()
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: user_id
+                  type: UUID
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_job_description_user
+                    references: users(id)
+                    deleteCascade: true
+              - column:
+                  name: title
+                  type: VARCHAR(255)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: raw_text
+                  type: TEXT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: source_type
+                  type: VARCHAR(50)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: file_name
+                  type: VARCHAR(255)
+                  constraints:
+                    nullable: true
+              - column:
+                  name: file_size_bytes
+                  type: BIGINT
+                  constraints:
+                    nullable: true
+              - column:
+                  name: storage_path
+                  type: VARCHAR(1000)
+                  constraints:
+                    nullable: true
+              - column:
+                  name: status
+                  type: VARCHAR(50)
+                  defaultValue: UPLOADED
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false
+              - column:
+                  name: updated_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false
+
+        - createIndex:
+            indexName: idx_job_description_user_id
+            tableName: job_description
+            columns:
+              - column:
+                  name: user_id
+
+        - createIndex:
+            indexName: idx_job_description_status
+            tableName: job_description
+            columns:
+              - column:
+                  name: status

@@ -1,0 +1,138 @@
+databaseChangeLog:
+  - changeSet:
+      id: 011-create-jd-intelligence
+      author: prabhat
+      preConditions:
+        onFail: MARK_RAN
+        not:
+          tableExists:
+            tableName: jd_intelligence
+      changes:
+        - createTable:
+            tableName: jd_intelligence
+            columns:
+              - column:
+                  name: id
+                  type: UUID
+                  defaultValueComputed: gen_random_uuid()
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              # One intelligence row per job_description: UNIQUE enforces the 1:1.
+              # The unique constraint already provides a btree index, so no
+              # separate createIndex on this column is needed (see note below).
+              - column:
+                  name: job_description_id
+                  type: UUID
+                  constraints:
+                    nullable: false
+                    unique: true
+                    uniqueConstraintName: uq_jd_intelligence_job_description_id
+                    foreignKeyName: fk_jd_intelligence_job_description
+                    references: job_description(id)
+                    deleteCascade: true
+              - column:
+                  name: job_title
+                  type: VARCHAR(255)
+                  constraints:
+                    nullable: true
+              - column:
+                  name: company_name
+                  type: VARCHAR(255)
+                  constraints:
+                    nullable: true
+              - column:
+                  name: company_description
+                  type: TEXT
+                  constraints:
+                    nullable: true
+              - column:
+                  name: location
+                  type: VARCHAR(255)
+                  constraints:
+                    nullable: true
+              - column:
+                  name: employment_type
+                  type: VARCHAR(50)
+                  constraints:
+                    nullable: true
+              - column:
+                  name: experience_years_min
+                  type: INT
+                  constraints:
+                    nullable: true
+              - column:
+                  name: experience_years_max
+                  type: INT
+                  constraints:
+                    nullable: true
+              - column:
+                  name: responsibilities
+                  type: TEXT
+                  constraints:
+                    nullable: true
+              - column:
+                  name: required_skills
+                  type: TEXT
+                  constraints:
+                    nullable: true
+              - column:
+                  name: preferred_skills
+                  type: TEXT
+                  constraints:
+                    nullable: true
+              - column:
+                  name: qualifications
+                  type: TEXT
+                  constraints:
+                    nullable: true
+              - column:
+                  name: must_have
+                  type: TEXT
+                  constraints:
+                    nullable: true
+              - column:
+                  name: nice_to_have
+                  type: TEXT
+                  constraints:
+                    nullable: true
+              - column:
+                  name: benefits
+                  type: TEXT
+                  constraints:
+                    nullable: true
+              - column:
+                  name: raw_summary
+                  type: TEXT
+                  constraints:
+                    nullable: true
+              - column:
+                  name: extraction_status
+                  type: VARCHAR(50)
+                  defaultValue: PENDING
+                  constraints:
+                    nullable: false
+              - column:
+                  name: extraction_error
+                  type: TEXT
+                  constraints:
+                    nullable: true
+              - column:
+                  name: created_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false
+              - column:
+                  name: updated_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false
+
+        - createIndex:
+            indexName: idx_jd_intelligence_extraction_status
+            tableName: jd_intelligence
+            columns:
+              - column:
+                  name: extraction_status
