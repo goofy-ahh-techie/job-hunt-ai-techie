@@ -1,12 +1,14 @@
 """HTTP client for the local Ollama runtime.
 
-Wraps Ollama's ``POST /api/generate`` endpoint. Every failure mode the runtime
-can present — connection refused, read timeout, non-2xx, malformed envelope —
-is normalised into :class:`OllamaUnavailableError`, so callers never have to
-know that httpx is the transport.
+Wraps Ollama's ``POST /api/generate`` (text completion) and ``POST /api/embeddings``
+(vector embeddings) endpoints. Every failure mode the runtime can present —
+connection refused, read timeout, non-2xx, malformed envelope — is normalised
+into :class:`OllamaUnavailableError`, so callers never have to know that httpx
+is the transport.
 """
 
 import logging
+from typing import List
 
 import httpx
 
@@ -16,6 +18,7 @@ from app.exceptions import OllamaUnavailableError
 logger = logging.getLogger(__name__)
 
 GENERATE_PATH = "/api/generate"
+EMBEDDINGS_PATH = "/api/embeddings"
 
 
 class OllamaClient:
@@ -28,9 +31,17 @@ class OllamaClient:
         timeout_seconds: float | None = None,
         temperature: float | None = None,
         num_ctx: int | None = None,
+        embedding_model: str | None = None,
     ):
         self.base_url = (base_url or settings.ollama_base_url).rstrip("/")
         self.model = model or settings.ollama_model
+        # Embeddings may come from a different model than completions: a
+        # purpose-built embedder (nomic-embed-text) is both faster and better at
+        # this than a generative model. Defaults to the generative model so the
+        # service works with a single pulled model.
+        self.embedding_model = (
+            embedding_model or settings.ollama_embedding_model or self.model
+        )
         self.timeout_seconds = (
             timeout_seconds
             if timeout_seconds is not None
@@ -108,3 +119,53 @@ class OllamaClient:
             len(completion),
         )
         return completion
+
+    async def embed(self, text: str) -> List[float]:
+        """Return the embedding vector for ``text``.
+
+        Ollama's ``/api/embeddings`` takes one text per call — there is no batch
+        form — so callers that need many vectors should issue these
+        concurrently rather than expecting the client to batch.
+
+        Raises:
+            OllamaUnavailableError: the runtime was unreachable, timed out,
+                returned a non-2xx status, or replied without a usable
+                ``embedding`` field.
+        """
+        url = f"{self.base_url}{EMBEDDINGS_PATH}"
+        payload = {"model": self.embedding_model, "prompt": text}
+
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+                response = await client.post(url, json=payload)
+                response.raise_for_status()
+                envelope = response.json()
+        except httpx.TimeoutException as exc:
+            raise OllamaUnavailableError(
+                f"Ollama embedding request timed out after {self.timeout_seconds}s "
+                f"(model={self.embedding_model})"
+            ) from exc
+        except httpx.HTTPStatusError as exc:
+            raise OllamaUnavailableError(
+                f"Ollama returned HTTP {exc.response.status_code} for embeddings "
+                f"(model={self.embedding_model})"
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise OllamaUnavailableError(
+                f"Could not reach Ollama at {url}: {exc}"
+            ) from exc
+        except ValueError as exc:
+            raise OllamaUnavailableError(
+                f"Ollama returned a non-JSON envelope from {url}"
+            ) from exc
+
+        embedding = envelope.get("embedding")
+        if not embedding:
+            # An empty list is as unusable as a missing key — both mean the
+            # runtime answered without producing a vector (typically a model
+            # that has not been pulled).
+            raise OllamaUnavailableError(
+                "Ollama embedding envelope did not contain a usable 'embedding' "
+                f"field (model={self.embedding_model}, keys={sorted(envelope)})"
+            )
+        return embedding

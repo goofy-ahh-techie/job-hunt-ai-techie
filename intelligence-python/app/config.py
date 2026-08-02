@@ -27,6 +27,22 @@ class Settings(BaseSettings):
     # the *front* of the context — losing instructions, not erroring. 8192 keeps
     # a full prompt + a large JD inside the window.
     ollama_num_ctx: int = 8192
+    # Model used for /api/embeddings (Phase 4 semantic matching). This must be a
+    # dedicated embedding model, not ollama_model: a generative model answers
+    # /api/embeddings with "This server does not support embeddings" (verified
+    # against llama3.2:3b on Ollama 0.32.3), because llama.cpp only exposes the
+    # embedding head when the model was loaded for it. nomic-embed-text is 274MB
+    # against the generative model's 2GB and returns a vector in well under a
+    # second. Empty falls back to ollama_model, which is only useful if that is
+    # itself an embedding model.
+    ollama_embedding_model: str = "nomic-embed-text"
+    # A semantic-similarity request embeds M target texts + N unmatched phrases,
+    # one Ollama call each. Individually each is far quicker than a completion,
+    # but the same 120s ceiling covers a slow cold start on the first call.
+    ollama_embedding_timeout_seconds: float = 120.0
+    # Cosine-similarity floor for "this phrase is present in the resume".
+    # Overridable per request by the Java caller; this is the fallback.
+    semantic_default_threshold: float = 0.65
 
     intelligence_port: int = 8000
 

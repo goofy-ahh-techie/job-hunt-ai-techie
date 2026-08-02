@@ -82,6 +82,21 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.failure(ex.getMessage(), null));
     }
 
+    @ExceptionHandler(ResumeVersionNotFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleResumeVersionNotFound(ResumeVersionNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.failure(ex.getMessage(), null));
+    }
+
+    @ExceptionHandler(SemanticMatchingFailedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleSemanticMatchingFailed(SemanticMatchingFailedException ex) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(ApiResponse.failure(ex.getMessage(), null));
+    }
+
+    @ExceptionHandler(MatchCalculationFailedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMatchCalculationFailed(MatchCalculationFailedException ex) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(ApiResponse.failure(ex.getMessage(), null));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleException(Exception ex) {
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(ApiResponse.failure(ex.getMessage(), null));

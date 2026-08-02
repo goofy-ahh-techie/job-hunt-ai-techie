@@ -1,0 +1,195 @@
+databaseChangeLog:
+  - changeSet:
+      id: 012-create-match-result
+      author: prabhat
+      preConditions:
+        onFail: MARK_RAN
+        not:
+          tableExists:
+            tableName: match_result
+      changes:
+        - createTable:
+            tableName: match_result
+            columns:
+              - column:
+                  name: id
+                  type: UUID
+                  defaultValueComputed: gen_random_uuid()
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: user_id
+                  type: UUID
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_match_result_user
+                    references: users(id)
+                    deleteCascade: true
+              - column:
+                  name: resume_id
+                  type: UUID
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_match_result_resume
+                    references: resume(id)
+                    deleteCascade: true
+              # The match is scored against one *version* of a resume, not the
+              # resume as a whole: re-uploading produces a new version whose
+              # scores are legitimately different, so the pair below is what a
+              # result is unique on.
+              - column:
+                  name: resume_version_id
+                  type: UUID
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_match_result_resume_version
+                    references: resume_version(id)
+                    deleteCascade: true
+              - column:
+                  name: job_description_id
+                  type: UUID
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_match_result_job_description
+                    references: job_description(id)
+                    deleteCascade: true
+
+              # --- scores: 0.00-100.00, so NUMERIC(5,2) ---
+              - column:
+                  name: overall_score
+                  type: NUMERIC(5,2)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: must_have_score
+                  type: NUMERIC(5,2)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: required_skills_score
+                  type: NUMERIC(5,2)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: responsibilities_score
+                  type: NUMERIC(5,2)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: experience_score
+                  type: NUMERIC(5,2)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: qualifications_score
+                  type: NUMERIC(5,2)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: preferred_skills_score
+                  type: NUMERIC(5,2)
+                  constraints:
+                    nullable: false
+
+              # --- gap detail: JSON arrays as TEXT, same tradeoff as jd_intelligence ---
+              - column:
+                  name: must_have_matched
+                  type: TEXT
+                  constraints:
+                    nullable: true
+              - column:
+                  name: must_have_missing
+                  type: TEXT
+                  constraints:
+                    nullable: true
+              - column:
+                  name: skills_matched
+                  type: TEXT
+                  constraints:
+                    nullable: true
+              - column:
+                  name: skills_missing
+                  type: TEXT
+                  constraints:
+                    nullable: true
+              - column:
+                  name: preferred_matched
+                  type: TEXT
+                  constraints:
+                    nullable: true
+              - column:
+                  name: score_explanation
+                  type: TEXT
+                  constraints:
+                    nullable: true
+
+              - column:
+                  name: status
+                  type: VARCHAR(50)
+                  defaultValue: PENDING
+                  constraints:
+                    nullable: false
+              # Null until the first successful calculation completes.
+              - column:
+                  name: last_calculated_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  constraints:
+                    nullable: true
+              - column:
+                  name: created_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false
+              - column:
+                  name: updated_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false
+
+        # One result per (resume version, job description). The upsert in
+        # MatchService looks a row up by exactly this pair, so the constraint is
+        # what stops a concurrent recalculation inserting a duplicate.
+        - addUniqueConstraint:
+            tableName: match_result
+            columnNames: resume_version_id, job_description_id
+            constraintName: uq_match_result_version_jd
+
+        - createIndex:
+            indexName: idx_match_result_user_id
+            tableName: match_result
+            columns:
+              - column:
+                  name: user_id
+
+        - createIndex:
+            indexName: idx_match_result_resume_id
+            tableName: match_result
+            columns:
+              - column:
+                  name: resume_id
+
+        - createIndex:
+            indexName: idx_match_result_job_description_id
+            tableName: match_result
+            columns:
+              - column:
+                  name: job_description_id
+
+        # Descending: the dashboard question is always "my best matches first".
+        - createIndex:
+            indexName: idx_match_result_overall_score
+            tableName: match_result
+            columns:
+              - column:
+                  name: overall_score
+                  descending: true
+
+        - createIndex:
+            indexName: idx_match_result_status
+            tableName: match_result
+            columns:
+              - column:
+                  name: status
