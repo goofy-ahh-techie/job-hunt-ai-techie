@@ -71,6 +71,24 @@ intelligence:
     # intelligence service's own Ollama timeout (120s) or every real extraction
     # would fail with a false "service unavailable".
     read-timeout-seconds: ${INTELLIGENCE_READ_TIMEOUT_SECONDS:130}
+    # Semantic matching (Phase 4) gets its own, longer read timeout: one call
+    # embeds every resume chunk plus every unmatched JD phrase, so its worst
+    # case is a multiple of a single extraction's.
+    match-read-timeout-seconds: ${INTELLIGENCE_MATCH_READ_TIMEOUT_SECONDS:180}
+
+# Matching engine (Phase 4). Cosine-similarity floors for the two semantic
+# sub-scores, calibrated live against nomic-embed-text: true positives separate
+# from unrelated phrases at 0.52-0.60 for short skills and 0.65-0.74 for prose
+# responsibilities. Skills sit LOWER than responsibilities because a short phrase
+# compared against a paragraph scores lower than paragraph-to-paragraph does.
+# Re-tune these whenever the embedding model changes.
+matching:
+  semantic:
+    skills-threshold: ${MATCHING_SKILLS_THRESHOLD:0.50}
+    responsibilities-threshold: ${MATCHING_RESPONSIBILITIES_THRESHOLD:0.60}
+    # Must-haves arrive from the LLM as full sentences, so they calibrate like
+    # responsibilities rather than like skills.
+    must-have-threshold: ${MATCHING_MUST_HAVE_THRESHOLD:0.60}
 
 logging:
   level:

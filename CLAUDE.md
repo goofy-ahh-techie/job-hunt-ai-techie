@@ -2,6 +2,10 @@
 
 > This file is the single source of truth for Claude Code sessions inside IntelliJ.
 > Update it at the end of each phase before starting the next one.
+>
+> Per-phase narratives (what we built, why, problems & fixes, deferrals, metrics) live in
+> [`docs/phases/`](docs/phases/), indexed by [`PHASES.md`](PHASES.md). Finishing a phase means
+> updating **three** places: the phase doc, the `PHASES.md` row, and this file.
 
 ---
 
@@ -37,6 +41,8 @@ job-hunt-ai-techie/
 │   │   │   ├── java/com/jobhuntai/jobhunt_backend/
 │   │   │   │   ├── auth/           # Phase 1: JWT authentication
 │   │   │   │   ├── common/         # ApiResponse, exception handler, clients
+│   │   │   │   ├── jd/             # Phase 3: JD intake + AI intelligence
+│   │   │   │   ├── matching/       # Phase 4: six-sub-score matching engine
 │   │   │   │   ├── rawresume/      # Raw resume + JD intake
 │   │   │   │   ├── resume/         # Phase 2: resume parsing & storage
 │   │   │   │   └── user/           # User entity, Role, repository
@@ -50,6 +56,10 @@ job-hunt-ai-techie/
 ├── infra/
 │   ├── docker-compose.yml          # PostgreSQL 16 + backend + intelligence
 │   └── .env                        # DB + service env vars (not committed)
+├── docs/
+│   └── phases/                     # One narrative doc per completed phase
+├── PHASES.md                       # Phase tracker index → docs/phases/
+├── AGENTS.md                       # Quick-reference for coding agents
 ├── README.md
 └── CLAUDE.md                       # ← You are here
 ```
@@ -243,6 +253,84 @@ intelligence service is down** (confirmed in DB), all worked.
 
 ---
 
+### ✅ Phase 4 — Matching Engine (COMPLETE)
+
+Resume chunks (Phase 2) + JD intelligence (Phase 3) → six componentised sub-scores → one
+weighted, explainable match, upserted per resume-version/JD pair. First phase that *derives*
+rather than extracts. Hybrid: Java owns four deterministic sub-scores, the Python service
+provides embedding-based semantic similarity for the other two (plus must-have rescue).
+
+**Scoring model** (locked weights): Must-Have 30% · Required Skills 25% · Responsibilities 20%
+· Experience 12% · Qualifications 8% · Preferred Skills 5% (bonus, never a penalty).
+Overall = Σ(sub-score × weight), 0–100 at two decimals.
+
+**intelligence-python additions** — `schemas/match_schemas.py`, `services/semantic_similarity_service.py`,
+`api/match_routes.py`; `OllamaClient.embed()` over `/api/embeddings`; `numpy` added.
+Endpoint `POST /match/semantic-similarity` → `{results, match_count, match_percentage}`
+(200/503; **no `success/data/error` envelope** — unlike extraction there is no partial-success
+shape to carry). Tests: `tests/test_semantic_similarity_service.py` (6, Ollama mocked).
+
+**Endpoints** (`/api/v1/matches`, Bearer token; `userId` from the principal)
+- `POST /` → 201 (calculate, or recalculate in place) · `GET /{matchId}` → 200 ·
+  `GET /resume/{resumeId}` → 200 · `GET /jd/{jdId}` → 200 (both list `MatchSummaryResponse`)
+
+**Components** (`matching/` package) — `domain/` (`MatchResult`, `MatchStatus`), `repository/`,
+`scoring/` (`SubScorer` + six scorers, `SubScoreOrchestrator`, `WeightedScoreCalculator`,
+`ScoreWeights`, `ScoreExplanationBuilder`, `KeywordMatcher`, `TextPassages`), `client/`
+(`MatchingIntelligenceClient`, `SemanticSimilarityResult`, `PhraseMatchResult`,
+`MatchingRestClientConfig`), `dto/`, `mapper/MatchMapper`, `service/` (`MatchService` +
+`MatchPersistenceService`), `controller/MatchController`.
+
+**Design decisions worth remembering**
+- **Strategy pattern per sub-score.** Six `SubScorer`s behind one interface; the orchestrator
+  runs them, the calculator weights them. A seventh dimension is a new class plus a weight.
+  Scorers are pure functions over `ScoringContext`, so every one unit-tests without Spring or a DB.
+- **Cheap pass, then expensive pass.** Skills *and* must-haves keyword-match first and send only
+  the misses for embedding — a keyword hit and a semantic hit both mean "present".
+- **Degrade, never 503.** The semantic scorers catch `IntelligenceServiceUnavailableException`
+  themselves and fall back to keyword-only with a note in the explanation. Verified live: with
+  the Python service down the match still returns **201 COMPLETED** at a lower score.
+- **Per-scorer failure isolation.** A throwing scorer is recorded as 0.0 with the reason and the
+  other five still run — the dimensions are independent, so one defect must not discard five
+  correct answers.
+- **Embed each side once (N+M), never pairwise (N×M).** Vectors are compared in numpy; a Python
+  test asserts the call count.
+- **Two RestClient beans.** Semantic matching gets its own 180s read timeout (it embeds every
+  passage plus every unmatched phrase). Both clients now `@Qualifier` their injection point so
+  the second bean cannot make the Phase 3 wiring ambiguous.
+- **`nomic-embed-text`, not `OLLAMA_MODEL`.** A generative model answers `/api/embeddings` with
+  "This server does not support embeddings" (verified, llama3.2:3b on Ollama 0.32.3).
+- **Thresholds are measured, and skills sit *below* responsibilities.** Short phrase vs. paragraph
+  scores lower than paragraph vs. paragraph — length asymmetry, not meaning. See gaps below.
+- **`TextPassages` splits chunks before embedding.** One vector for a 158-word chunk is the
+  *average* of its topics; splitting to sentences is what makes specific matches land.
+
+**Exception → status** (wired into `GlobalExceptionHandler`)
+- `MatchCalculationFailedException` → 500 · `SemanticMatchingFailedException` → 422 ·
+  `ResumeVersionNotFoundException` → 404 · (`ResourceNotFoundException` → 404,
+  `JdIntelligenceNotFoundException` → 404, both reused)
+
+**Config:** `intelligence.service.match-read-timeout-seconds` (180);
+`matching.semantic.skills-threshold` (0.50), `.responsibilities-threshold` (0.60),
+`.must-have-threshold` (0.60). Python: `OLLAMA_EMBEDDING_MODEL` (`nomic-embed-text`),
+`OLLAMA_EMBEDDING_TIMEOUT_SECONDS` (120), `SEMANTIC_DEFAULT_THRESHOLD`.
+
+**Tests:** 66 new Java (6 scorer classes, `TextPassagesTest`, `WeightedScoreCalculatorTest`,
+`SubScoreOrchestratorTest`, `MatchServiceTest`, `MatchingIntelligenceClientTest`) — 100 Java
+total, all passing, no DB/Spring context. Python: 10 total (6 new), Ollama mocked.
+
+**Live end-to-end verified** (Dockerized PG16 + `ollama/ollama` + FastAPI): changeset 012
+applied, `validate` accepted the entity, and register → upload DOCX resume → paste JD →
+`POST /matches` returned **74.50** with all six sub-scores and a readable explanation;
+recalculation upserted the same row (1 row after 4 runs) and advanced `lastCalculatedAt`;
+all GETs, 404s and 401 behaved; and with the intelligence service stopped the match still
+completed at 43.33 with keyword-only notes.
+
+> ⚠️ Matching needs **two** Ollama models pulled: `llama3.2:3b` (JD extraction) and
+> `nomic-embed-text` (matching). `docker exec ollama ollama pull nomic-embed-text`.
+
+---
+
 ## Architectural Decisions (Locked)
 
 These are intentional choices — do not suggest alternatives unless asked.
@@ -291,6 +379,7 @@ These are intentional choices — do not suggest alternatives unless asked.
 | 009-add-raw-resume-user-fk | FK on `raw_resume.user_id` | ✅ Applied |
 | 010-create-job-description | `job_description` | ✅ Applied |
 | 011-create-jd-intelligence | `jd_intelligence` | ✅ Applied |
+| 012-create-match-result | `match_result` | ✅ Applied |
 
 > Applied against the live PG16. `resume` FKs `users(id)` ON DELETE CASCADE; 009 adds the
 > previously-missing FK on `raw_resume.user_id` → `users(id)` ON DELETE SET NULL. 009 also
@@ -320,8 +409,8 @@ Only work on the current active phase unless explicitly instructed otherwise.
 | 1     | Authentication (JWT)               | ✅ Complete  |
 | 2     | Resume parsing & storage           | ✅ Complete  |
 | 3     | JD intelligence                    | ✅ Complete  |
-| 4     | Matching engine                    | 🔜 Next     |
-| 5     | Skill gap analysis                 | Pending     |
+| 4     | Matching engine                    | ✅ Complete  |
+| 5     | Skill gap analysis                 | 🔜 Next     |
 | 6     | Application tracking               | Pending     |
 | 7     | Interview preparation              | Pending     |
 | 8     | Feedback loop (OutcomeSignal)      | Pending     |
@@ -364,13 +453,35 @@ Only work on the current active phase unless explicitly instructed otherwise.
   - No orphan cleanup of a stored JD file when extraction fails (same gap as Phase 2).
   - Skill strings are extracted verbatim, not yet normalised — `SkillRegistry` (core IP)
     is a later phase.
+- **Phase 4 carry-forwards:**
+  - Match calculation is synchronous; ~12s of embedding calls block the request. `CALCULATING`
+    is already persisted before scoring starts, so the async offload has its state waiting.
+  - **Acronyms embed badly** — "CI/CD" scores 0.371 against "build and deployment pipelines in
+    Jenkins and GitHub Actions", a true positive the model misses. Clearest remaining accuracy
+    gap and squarely `SkillRegistry` territory.
+  - Keyword matching is plain substring containment, so a one- or two-character skill ("R", "Go")
+    matches inside unrelated words and "Kubernetes" never matches "K8s". Same root cause: skills
+    compared as raw strings.
+  - **Similarity thresholds are model-specific** and were calibrated against `nomic-embed-text`.
+    Swapping the embedding model requires re-measuring `matching.semantic.*`; the values are
+    config keys, not constants, for exactly this reason.
+  - Only the three keyword dimensions persist matched/missing lists; a `GET` reconstructs the
+    other three dimensions' prose from `score_explanation` and returns empty lists for them.
+  - `ScoreWeights` is a value object but is still only ever constructed as `DEFAULT` — per-user
+    or per-role weighting is wiring that has not been done.
+  - The `FAILED`-status path is unit-tested but was never triggered live (it needs an injected
+    fault; the intelligence service being down is deliberately *not* a failure).
 
 ---
 
-_Last updated: Phase 3 (JD intelligence) complete — Java + Python code, 10 new Java unit
-tests + 4 Python pytest (all passing, no DB/Ollama), and a live end-to-end run verified:
-changesets 010–011 applied, register → paste JD → EXTRACTED, PDF upload → EXTRACTED, all
-GETs, 404 on bad id, and 503 + FAILED-persisted when the intelligence service is down.
-Live-discovered fixes: Ollama timeout 30→120s, Java read timeout 10→130s, `raw_summary`
-null coercion, years-parsing prompt examples, `temperature=0`/`num_ctx=8192`. Phase 4
-(Matching engine) is next._
+_Last updated: Phase 4 (Matching engine) complete — Java + Python code, 66 new Java unit tests
+(100 total) + 6 new Python pytest (10 total), all passing with no DB/Spring context/Ollama, and
+a live end-to-end run verified: changeset 012 applied, register → upload resume → paste JD →
+`POST /matches` = **74.50** with all six sub-scores and a readable explanation, recalculation
+upserting the same row, all GETs/404s/401, and a **201 COMPLETED keyword-only match with the
+intelligence service stopped** (never a 503). Live-discovered fixes: `nomic-embed-text` (a
+generative model cannot embed at all), skills threshold 0.65→0.50 with the skills/responsibilities
+ordering **inverted** against the spec, a semantic pass added to must-have coverage, and
+`TextPassages` chunk splitting — the last two together moved the same pair from 51.50 to 74.50.
+Phase 5 (Skill gap analysis) is next, and `SkillRegistry` is the fix for the acronym and
+short-token gaps this phase surfaced._

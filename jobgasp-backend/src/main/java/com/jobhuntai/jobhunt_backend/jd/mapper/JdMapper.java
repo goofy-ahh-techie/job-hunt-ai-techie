@@ -46,8 +46,14 @@ public final class JdMapper {
         }
     }
 
-    /** Deserialise a JSON-array TEXT column back to a {@code List<String>}. */
-    private static List<String> deserializeList(String json) {
+    /**
+     * Deserialise a JSON-array TEXT column back to a {@code List<String>}.
+     *
+     * <p>Public since Phase 4: the matching scorers read the same columns, and the
+     * alternative — a second copy of the codec in the matching package — would put
+     * the "list fields are JSON text" decision in two places.
+     */
+    public static List<String> deserializeList(String json) {
         if (json == null || json.isBlank()) {
             return List.of();
         }

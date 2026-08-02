@@ -5,8 +5,8 @@ from fastapi.responses import JSONResponse
 
 from app.api.health import router as health_router
 from app.api.jd_routes import router as jd_router
+from app.api.match_routes import router as match_router
 from app.api.ping import router as ping_router
-from app.schemas.jd_schemas import JdExtractionResponse
 
 app = FastAPI(title="Job Hunt Copilot Intelligence Service")
 
@@ -22,6 +22,7 @@ app.add_middleware(
 app.include_router(health_router)
 app.include_router(ping_router)
 app.include_router(jd_router, prefix="/extract")
+app.include_router(match_router, prefix="/match")
 
 
 @app.exception_handler(RequestValidationError)
@@ -34,13 +35,16 @@ async def handle_request_validation_error(
     shorter than 50 characters) would come back in FastAPI's default
     ``{"detail": [...]}`` shape, which is not the contract the Java client
     expects from this service.
+
+    The envelope is built literally rather than from a route-specific schema:
+    this handler is app-wide, so it must not stamp the JD extraction response
+    shape onto a validation failure from a matching route. Both Java clients key
+    off the 422 status regardless.
     """
     detail = "; ".join(
         f"{'.'.join(str(p) for p in err['loc'])}: {err['msg']}" for err in exc.errors()
     )
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content=JdExtractionResponse(
-            success=False, error=f"Invalid request: {detail}"
-        ).model_dump(),
+        content={"success": False, "data": None, "error": f"Invalid request: {detail}"},
     )

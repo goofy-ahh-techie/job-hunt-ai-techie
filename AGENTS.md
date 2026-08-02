@@ -28,12 +28,23 @@ Project-specific patterns you must follow
 - Store-first, persist-once: file storage happens before DB insert; if storage fails there
   must be zero DB rows. See `ResumeService` and `ResumePersistenceService` design notes in `CLAUDE.md`.
 - List fields as JSON text: some entity list fields are serialized to JSON text; `JdMapper` owns
-  serialization/deserialization (search `JdMapper`).
+  serialization/deserialization for both the `jd/` and `matching/` packages (search `JdMapper`).
+- Sub-scorer strategy (Phase 4): each match dimension is a `SubScorer` in `matching/scoring/`.
+  Add a dimension by adding a class plus a weight in `ScoreWeights` — do not edit existing
+  scorers. Scorers must not throw for ordinary data (an empty JD list is a defined score), and
+  semantic scorers must catch `IntelligenceServiceUnavailableException` and degrade to keyword
+  matching rather than failing the match.
 
 Integration and runtime gotchas
 - Intelligence client timeouts: Java uses two timeouts — connect=10s, read=130s. Python Ollama uses
   a 120s read timeout. Long LLM runs (30–66s) require the larger read timeout.
   Files: `IntelligenceRestClientConfig`, `intelligence-python/app/config.py`.
+  Matching has a *second* RestClient bean (`matchingRestClient`, read=180s); both clients
+  `@Qualifier` their injection point, so do not remove those annotations.
+- Two Ollama models are required: `llama3.2:3b` (JD extraction) and `nomic-embed-text` (matching
+  embeddings). A generative model cannot serve `/api/embeddings` at all.
+- Similarity thresholds (`matching.semantic.*` in application.yaml) are calibrated to
+  `nomic-embed-text`. Changing the embedding model means re-measuring them.
 - Local Postgres port conflict: Windows often has native Postgres 14 on 5432 which will
   shadow the Dockerized Postgres 16. Either stop the native service or run everything in Compose.
   See `CLAUDE.md` warnings.

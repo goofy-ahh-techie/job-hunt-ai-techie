@@ -4,6 +4,7 @@ import com.jobhuntai.jobhunt_backend.common.exception.IntelligenceServiceUnavail
 import com.jobhuntai.jobhunt_backend.common.exception.JdExtractionFailedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
@@ -31,7 +32,10 @@ public class JdIntelligenceClient {
 
     private final RestClient intelligenceRestClient;
 
-    public JdIntelligenceClient(RestClient intelligenceRestClient) {
+    // Qualified explicitly: Phase 4 adds a second RestClient bean
+    // (matchingRestClient), and by-name resolution would then depend on the
+    // -parameters compiler flag surviving every future build change.
+    public JdIntelligenceClient(@Qualifier("intelligenceRestClient") RestClient intelligenceRestClient) {
         this.intelligenceRestClient = intelligenceRestClient;
     }
 
