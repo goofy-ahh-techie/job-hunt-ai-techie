@@ -3,6 +3,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.gap_routes import router as gap_router
 from app.api.health import router as health_router
 from app.api.jd_routes import router as jd_router
 from app.api.match_routes import router as match_router
@@ -23,6 +24,7 @@ app.include_router(health_router)
 app.include_router(ping_router)
 app.include_router(jd_router, prefix="/extract")
 app.include_router(match_router, prefix="/match")
+app.include_router(gap_router, prefix="/gaps")
 
 
 @app.exception_handler(RequestValidationError)

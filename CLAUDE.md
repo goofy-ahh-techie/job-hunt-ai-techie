@@ -43,6 +43,7 @@ job-hunt-ai-techie/
 │   │   │   │   ├── common/         # ApiResponse, exception handler, clients
 │   │   │   │   ├── jd/             # Phase 3: JD intake + AI intelligence
 │   │   │   │   ├── matching/       # Phase 4: six-sub-score matching engine
+│   │   │   │   ├── skillgap/       # Phase 5: skill gap analysis
 │   │   │   │   ├── rawresume/      # Raw resume + JD intake
 │   │   │   │   ├── resume/         # Phase 2: resume parsing & storage
 │   │   │   │   └── user/           # User entity, Role, repository
@@ -331,6 +332,75 @@ completed at 43.33 with keyword-only notes.
 
 ---
 
+### ✅ Phase 5 — Skill Gap Analysis (COMPLETE)
+
+Turns a Phase 4 score into advice: which gaps matter, how much, and what to do about each.
+Two modes — match-tied (persisted, upserted per match) and standalone (resume alone, never
+persisted). The first phase where the LLM is used *only* for judgement, with every mechanical
+rule enforced in code around it.
+
+**intelligence-python additions** — `schemas/gap_schemas.py`, `prompts/gap_analysis_prompt.py`
+(two sentinel templates), `services/gap_analysis_service.py`, `api/gap_routes.py`. Endpoints
+`POST /gaps/analyze` and `POST /gaps/analyze-standalone` → `{success, data, error}`
+(200/422/503 — the envelope returns here, unlike Phase 4 matching, because an LLM reasoning
+task has a partial-failure shape to carry). Tests: `tests/test_gap_analysis_service.py` (17).
+
+**Endpoints** (`/api/v1/skill-gaps`, Bearer token; `userId` from the principal)
+- `POST /match/{matchId}` → 201 (analyse, or re-analyse in place)
+- `GET /{skillGapId}` · `GET /match/{matchId}` (404 if never analysed) ·
+  `GET /resume/{resumeId}` · `GET /jd/{jdId}` (both `SkillGapSummaryResponse`) ·
+  `GET /resume/{resumeId}/standalone` (a GET despite the LLM call — no server state created)
+
+**Components** (`skillgap/` package) — `domain/` (`SkillGap` entity, `SkillGapStatus`,
+`GapPriority`, `GapItem` value object), `repository/`, `extractor/` (`GapExtractor`,
+`ExtractedGaps`), `client/` (`SkillGapIntelligenceClient`, `GapAnalysisClientRequest`,
+`GapAnalysisClientResult`, `GapItemResult`, `StandaloneGapClientResult`,
+`SkillGapRestClientConfig`), `dto/`, `mapper/SkillGapMapper`, `service/` (`SkillGapService` +
+`SkillGapPersistenceService`), `controller/SkillGapController`.
+
+**Design decisions worth remembering**
+- **Phase 5 detects nothing.** `GapExtractor` reads `must_have_missing` / `skills_missing`
+  straight off the match row rather than re-running the matching engine. Only
+  `preferredMissing` is computed here, because Phase 4 deliberately does not persist it — an
+  unmatched nice-to-have is not a shortfall for a *score* but is worth saying in *advice*.
+- **LLM does judgement; code does rules.** Priority comes from which list an item came from,
+  `quick_wins` from `estimated_weeks <= 1`, and every supplied gap must appear exactly once —
+  all three enforced in the Python service *after* the model replies, because the model broke
+  all three live. The model keeps only "why does this matter here" and "how do I close it".
+- **The empty-gap case never reaches the model.** A perfect match short-circuits with a fixed
+  positive summary; asking a model to explain an empty list invites it to invent one.
+- **Record failure, do not degrade around it.** Opposite of the Phase 4 scorers: a gap analysis
+  with no analysis is nothing, so the row records `FAILED` + `analysis_error` and the exception
+  propagates (503/422) rather than returning an empty result that reads like "no gaps".
+- **`gaps` is a JSON array of objects**, not the flat string arrays of Phases 3 and 4 — a gap is
+  a name *plus* priority, rationale and recommendation, which parallel arrays would let drift.
+  `SkillGapMapper` owns that codec and its own `ObjectMapper`.
+- **Standalone is never persisted** — it derives from the resume alone, so a stored copy would
+  go stale the moment the resume changed.
+- **A third RestClient bean** (`skillGapRestClient`, 120s): JD extraction, semantic matching and
+  gap analysis have genuinely different worst cases. All three `@Qualifier` their injection point.
+
+**Exception → status** (wired into `GlobalExceptionHandler`)
+- `GapAnalysisFailedException` → 422 · `SkillGapNotFoundException` → 404 ·
+  (`IntelligenceServiceUnavailableException` → 503, `ResourceNotFoundException` → 404,
+  `JdIntelligenceNotFoundException` → 404, all reused)
+
+**Config:** `intelligence.service.gap-read-timeout-seconds` (120).
+
+**Tests:** `GapExtractorTest` (6), `SkillGapMapperTest` (6), `SkillGapIntelligenceClientTest` (8),
+`SkillGapServiceTest` (13) — 33 new, 133 Java total, all passing with no DB/Spring context.
+Python: 29 total (17 new), Ollama mocked.
+
+**Live end-to-end verified** (Dockerized PG16 + `ollama/ollama` + FastAPI): changeset 013
+applied, `validate` accepted the entity, and analysing the Phase 4 match returned 2 CRITICAL
+(the must-have misses) + 2 MEDIUM (unmatched preferred skills) with recommendations naming the
+candidate's own adjacent experience; standalone returned domain-level assessment while
+persisting nothing; re-analysis upserted the same row and advanced `lastAnalyzedAt` (1 row after
+4 runs); 404s and 401 correct; and with the intelligence service stopped, **503 with `FAILED` +
+`analysis_error` persisted**.
+
+---
+
 ## Architectural Decisions (Locked)
 
 These are intentional choices — do not suggest alternatives unless asked.
@@ -380,6 +450,7 @@ These are intentional choices — do not suggest alternatives unless asked.
 | 010-create-job-description | `job_description` | ✅ Applied |
 | 011-create-jd-intelligence | `jd_intelligence` | ✅ Applied |
 | 012-create-match-result | `match_result` | ✅ Applied |
+| 013-create-skill-gap | `skill_gap` | ✅ Applied |
 
 > Applied against the live PG16. `resume` FKs `users(id)` ON DELETE CASCADE; 009 adds the
 > previously-missing FK on `raw_resume.user_id` → `users(id)` ON DELETE SET NULL. 009 also
@@ -410,8 +481,8 @@ Only work on the current active phase unless explicitly instructed otherwise.
 | 2     | Resume parsing & storage           | ✅ Complete  |
 | 3     | JD intelligence                    | ✅ Complete  |
 | 4     | Matching engine                    | ✅ Complete  |
-| 5     | Skill gap analysis                 | 🔜 Next     |
-| 6     | Application tracking               | Pending     |
+| 5     | Skill gap analysis                 | ✅ Complete  |
+| 6     | Application tracking               | 🔜 Next     |
 | 7     | Interview preparation              | Pending     |
 | 8     | Feedback loop (OutcomeSignal)      | Pending     |
 | 9     | Frontend integration               | Pending     |
@@ -471,10 +542,36 @@ Only work on the current active phase unless explicitly instructed otherwise.
     or per-role weighting is wiring that has not been done.
   - The `FAILED`-status path is unit-tested but was never triggered live (it needs an injected
     fault; the intelligence service being down is deliberately *not* a failure).
+- **Phase 5 carry-forwards:**
+  - Gap analysis is synchronous, blocking ~60s on the LLM. `ANALYZING` is persisted before the
+    call, so the async offload has its state waiting.
+  - **Recommendation prose is at the 3B model's ceiling.** After the enumeration fix the model
+    covers every gap but writes more formulaically ("This role's use of X depends on it"). It
+    still names the candidate's adjacent experience; `mistral:7b` is the upgrade path, same
+    ceiling as Phase 3.
+  - `deal_breakers` is the one judgement still fully trusted to the model (code only constrains
+    it to CRITICAL gaps). It returned empty on the live run — correct there, but the populated
+    case has not been observed.
+  - **Recalculating a match does not re-run its gap analysis.** The gaps go stale;
+    `overall_score_context` records the score they were reasoned against, so the staleness is
+    visible but nothing acts on it.
+  - The perfect-match short-circuit is unit-tested only — building a resume that satisfies every
+    must-have of a real JD was not worth a live run.
 
 ---
 
-_Last updated: Phase 4 (Matching engine) complete — Java + Python code, 66 new Java unit tests
+_Last updated: Phase 5 (Skill gap analysis) complete — Java + Python code, 33 new Java unit
+tests (133 total) + 17 new Python pytest (29 total), all passing with no DB/Spring context/Ollama,
+and a live end-to-end run verified: changeset 013 applied, analysing the Phase 4 match returned
+2 CRITICAL + 2 MEDIUM gaps with recommendations naming the candidate's own adjacent experience,
+standalone assessment persisted nothing, re-analysis upserted in place (1 row after 4 runs), and
+the intelligence service being down gave **503 with `FAILED` + `analysis_error` persisted**.
+Live-discovered fixes: the model copied the prompt's own example verbatim, assigned priority by
+judgement instead of provenance, ignored its own week estimates when filling `quick_wins`, and
+dropped 2 of 5 gaps until the prompt enumerated them explicitly — the phase's lesson being where
+to draw the LLM boundary. Phase 6 (Application tracking) is next._
+
+_Previously: Phase 4 (Matching engine) complete — Java + Python code, 66 new Java unit tests
 (100 total) + 6 new Python pytest (10 total), all passing with no DB/Spring context/Ollama, and
 a live end-to-end run verified: changeset 012 applied, register → upload resume → paste JD →
 `POST /matches` = **74.50** with all six sub-scores and a readable explanation, recalculation

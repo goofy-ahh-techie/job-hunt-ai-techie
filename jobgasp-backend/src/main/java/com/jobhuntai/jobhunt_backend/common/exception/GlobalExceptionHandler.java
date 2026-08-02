@@ -97,6 +97,16 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(ApiResponse.failure(ex.getMessage(), null));
     }
 
+    @ExceptionHandler(GapAnalysisFailedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleGapAnalysisFailed(GapAnalysisFailedException ex) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(ApiResponse.failure(ex.getMessage(), null));
+    }
+
+    @ExceptionHandler(SkillGapNotFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleSkillGapNotFound(SkillGapNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.failure(ex.getMessage(), null));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleException(Exception ex) {
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(ApiResponse.failure(ex.getMessage(), null));

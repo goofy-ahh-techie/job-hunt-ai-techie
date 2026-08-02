@@ -75,6 +75,9 @@ intelligence:
     # embeds every resume chunk plus every unmatched JD phrase, so its worst
     # case is a multiple of a single extraction's.
     match-read-timeout-seconds: ${INTELLIGENCE_MATCH_READ_TIMEOUT_SECONDS:180}
+    # Skill gap analysis (Phase 5) is one LLM completion over a short gap list —
+    # comparable to a JD extraction, and shorter than a semantic match.
+    gap-read-timeout-seconds: ${INTELLIGENCE_GAP_READ_TIMEOUT_SECONDS:120}
 
 # Matching engine (Phase 4). Cosine-similarity floors for the two semantic
 # sub-scores, calibrated live against nomic-embed-text: true positives separate

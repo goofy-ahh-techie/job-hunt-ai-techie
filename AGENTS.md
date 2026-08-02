@@ -29,6 +29,11 @@ Project-specific patterns you must follow
   must be zero DB rows. See `ResumeService` and `ResumePersistenceService` design notes in `CLAUDE.md`.
 - List fields as JSON text: some entity list fields are serialized to JSON text; `JdMapper` owns
   serialization/deserialization for both the `jd/` and `matching/` packages (search `JdMapper`).
+- LLM boundary (Phase 5): anything mechanical is computed in code, not asked of the model.
+  Gap priority comes from which list an item came from, `quick_wins` from the week estimates,
+  and no supplied gap may be dropped — all enforced in `gap_analysis_service.py` *after* the
+  model replies, because the model broke all three in live runs. Leave the model only
+  "why does this matter" and "how do I close it".
 - Sub-scorer strategy (Phase 4): each match dimension is a `SubScorer` in `matching/scoring/`.
   Add a dimension by adding a class plus a weight in `ScoreWeights` — do not edit existing
   scorers. Scorers must not throw for ordinary data (an empty JD list is a defined score), and
