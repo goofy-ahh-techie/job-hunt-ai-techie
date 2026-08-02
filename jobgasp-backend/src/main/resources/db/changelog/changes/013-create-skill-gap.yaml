@@ -1,0 +1,141 @@
+databaseChangeLog:
+  - changeSet:
+      id: 013-create-skill-gap
+      author: prabhat
+      preConditions:
+        onFail: MARK_RAN
+        not:
+          tableExists:
+            tableName: skill_gap
+      changes:
+        - createTable:
+            tableName: skill_gap
+            columns:
+              - column:
+                  name: id
+                  type: UUID
+                  defaultValueComputed: gen_random_uuid()
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: user_id
+                  type: UUID
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_skill_gap_user
+                    references: users(id)
+                    deleteCascade: true
+              # One gap analysis per match result: UNIQUE enforces the 1:1 the
+              # upsert in SkillGapService relies on. The unique constraint
+              # already provides a btree index, so no separate createIndex.
+              - column:
+                  name: match_result_id
+                  type: UUID
+                  constraints:
+                    nullable: false
+                    unique: true
+                    uniqueConstraintName: uq_skill_gap_match_result_id
+                    foreignKeyName: fk_skill_gap_match_result
+                    references: match_result(id)
+                    deleteCascade: true
+              # Denormalised from match_result so "all gaps for this resume" and
+              # "all gaps for this JD" are single-table queries rather than joins.
+              - column:
+                  name: resume_id
+                  type: UUID
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_skill_gap_resume
+                    references: resume(id)
+                    deleteCascade: true
+              - column:
+                  name: job_description_id
+                  type: UUID
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_skill_gap_job_description
+                    references: job_description(id)
+                    deleteCascade: true
+
+              - column:
+                  name: gap_summary
+                  type: TEXT
+                  constraints:
+                    nullable: true
+              # JSON array of gap OBJECTS, not strings — richer than the flat
+              # string arrays of phases 3 and 4. SkillGapMapper owns the codec.
+              - column:
+                  name: gaps
+                  type: TEXT
+                  constraints:
+                    nullable: true
+              - column:
+                  name: quick_wins
+                  type: TEXT
+                  constraints:
+                    nullable: true
+              - column:
+                  name: deal_breakers
+                  type: TEXT
+                  constraints:
+                    nullable: true
+              # The match score when this analysis ran. Copied rather than read
+              # through the FK: recalculating the match changes its score, and
+              # the gaps would then be explained against a number that no longer
+              # produced them.
+              - column:
+                  name: overall_score_context
+                  type: NUMERIC(5,2)
+                  constraints:
+                    nullable: true
+
+              - column:
+                  name: status
+                  type: VARCHAR(50)
+                  defaultValue: PENDING
+                  constraints:
+                    nullable: false
+              - column:
+                  name: analysis_error
+                  type: TEXT
+                  constraints:
+                    nullable: true
+              - column:
+                  name: last_analyzed_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  constraints:
+                    nullable: true
+              - column:
+                  name: created_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false
+              - column:
+                  name: updated_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false
+
+        - createIndex:
+            indexName: idx_skill_gap_user_id
+            tableName: skill_gap
+            columns:
+              - column:
+                  name: user_id
+
+        - createIndex:
+            indexName: idx_skill_gap_resume_id
+            tableName: skill_gap
+            columns:
+              - column:
+                  name: resume_id
+
+        - createIndex:
+            indexName: idx_skill_gap_job_description_id
+            tableName: skill_gap
+            columns:
+              - column:
+                  name: job_description_id

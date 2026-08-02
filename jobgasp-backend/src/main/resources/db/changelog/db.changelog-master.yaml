@@ -23,3 +23,5 @@ databaseChangeLog:
       file: db/changelog/changes/011-create-jd-intelligence.yaml
   - include:
       file: db/changelog/changes/012-create-match-result.yaml
+  - include:
+      file: db/changelog/changes/013-create-skill-gap.yaml
